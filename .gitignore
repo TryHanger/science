@@ -1,0 +1,17 @@
+# Данные и кэш
+data/
+outputs/
+*.h5
+*.npy
+*.pth
+*.pt
+
+# Python кэш
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+.coverage
+
+# Jupyter
+.ipynb_checkpoints/

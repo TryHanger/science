@@ -1,0 +1,29 @@
+env: kaggle
+device: auto
+seed: 42
+data:
+  train_questions: /kaggle/input/vqa-v2/v2_OpenEnded_mscoco_train2014_questions.json
+  train_annotations: /kaggle/input/vqa-v2/v2_mscoco_train2014_annotations.json
+  val_questions: /kaggle/input/vqa-v2/v2_OpenEnded_mscoco_val2014_questions.json
+  val_annotations: /kaggle/input/vqa-v2/v2_mscoco_val2014_annotations.json
+  train_img_dir: /kaggle/input/coco2014/train2014
+  val_img_dir: /kaggle/input/coco2014/val2014
+  num_train_questions: 80000
+  num_val_questions: 20000
+  num_answers: 1000
+  max_question_len: 14
+  min_word_freq: 2
+output_dir: /kaggle/working/outputs
+model:
+  img_feature_dim: 2048
+  text_embed_dim: 300
+  lstm_hidden_dim: 512
+  common_proj_dim: 1024
+  dropout_rate: 0.5
+  fusion_method: mul
+training:
+  batch_size: 256
+  learning_rate: 0.001
+  num_epochs: 15
+  early_stopping_patience: 3
+  num_workers: 2
