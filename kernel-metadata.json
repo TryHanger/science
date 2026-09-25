@@ -1,0 +1,18 @@
+{
+  "id": "tryhanger1/vqa-science",
+  "title": "vqa-science",
+  "code_file": "notebooks/kaggle_run.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "biminhco/vqa-v2-question",
+    "jeffaudi/coco-2014-dataset-for-yolov3"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
