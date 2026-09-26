@@ -11,7 +11,8 @@
 - [x] ТЗ-F — `README.md` (рус., UTF-8) + `.gitattributes` + `.editorconfig` (REVIEW ✓; хвостовые пробелы убраны вручную)
 - [x] ТЗ-H — приватный датасет `tryhanger1/vqa-science-artifacts` из `outputs/kaggle/outputs/` (REVIEW ✓: ready, 7 файлов, размеры совпадают, в публичном поиске отсутствует)
 - [x] RETEST — pytest 6/6; resume со старого чекпоинта; evaluate по 3 моделям; веса v3 загружаются в текущие модели без расхождений ключей; `git diff --check` чист
-- [ ] COMMIT → push в GitHub (подтверждение пользователя) → `kaggle kernels push` v4 → разбор результатов
+- [x] COMMIT — `805f272`, `5c73917`, `a5da89e` (локально, ahead 3)
+- [ ] push в GitHub (подтверждение пользователя) → `kaggle kernels push` v4 → разбор результатов
 
 ## Backlog
 - T-006 — Живая загрузка в PostgreSQL: задать `PGUSER`/`PGPASSWORD`, выполнить `scripts/load_predictions.py` + `sql/analysis.sql` для `kaggle_v3` (и v4 после прогона).
