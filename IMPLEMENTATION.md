@@ -63,6 +63,15 @@ ResNet-50 (avgpool, 2048) → Linear(1024)+Tanh ⊙ LSTM(512, pack_padded_sequen
 ## Возможности train.py (после ТЗ-C)
 `--model-type {vqa,question_only} --fusion {mul,concat} --epochs N(общее) --patience N --scheduler {none,plateau} --resume`. Артефакты: mul → `best_model.pth`/`metrics_history_vqa.json`; concat → `best_model_concat.pth`/`metrics_history_vqa_concat.json`; q-only → `best_question_only_model.pth`/`metrics_history_question_only.json`. История пишется после каждой эпохи, включает `lr`. Resume стартует с лучшей эпохи чекпоинта (история обрезается до неё).
 
+## Финальный протокол (ADR-011) — реализовано, локально проверено
+- `data.split_mode: protocol` (`src/splits.py`, `src/data.py`): train = train2014 без dev-изображений, dev = 10% изображений train2014 (seed 2026), test = весь val2014 (`get_test_loader`); словарь по train-части; `split_manifest.json` в output_dir; признаки в RAM (`preload_features`); вопросы без признаков исключаются, при доле > `max_missing_feature_frac` — ошибка. `legacy` — прежнее поведение (проверено: те же метрики).
+- `--seed N` во всех скриптах → артефакты в `<output_dir>/seed_N/`; признаки, словарь, манифест — общие.
+- `src/metrics.py`: официальная VQA accuracy (10×9) и упрощённая. `metrics_table.csv`: Model, Split, Seed, Answer Type, N, **Accuracy (%) = официальная**, Accuracy simplified (%), Best Epoch (в v3/v4 «Accuracy (%)» была упрощённой).
+- `scripts/aggregate_seeds.py` → `results_table.csv` (mean/std/min/max по seed) и `results_per_seed.csv`.
+- `extract_features.py`: индекс изображений одним проходом, отсутствующие → `missing_images_<split>.txt`, отчёт о покрытии.
+- Конфиги: `kaggle_final.yaml` (протокол, 30 эп., plateau, patience 5), `local_protocol.yaml` (smoke на сэмпле), `local_gpu.yaml` (зеркало финального для локального GPU, num_workers 0).
+- Ноутбук `notebooks/kaggle_final.ipynb` + kernel `tryhanger1/vqa-science-final` (в `kernel-metadata.json`); кэш признаков берётся из `tryhanger1/vqa-science-artifacts` (только h5).
+
 ## Локальное обучение на GPU (ADR-010)
 - GPU: NVIDIA GeForce RTX 3050 Laptop, 4 GB VRAM (≈3.2 GB свободно), драйвер 616.92; CUDA работает нативно в Windows (torch 2.5.1+cu124, torchvision 0.20.1+cu124, cuDNN 9.1). WSL (Ubuntu, docker-desktop) установлен, но не используется.
 - Конфиг `configs/local_gpu.yaml` (данные/модель = kaggle.yaml, `output_dir ./outputs/local_gpu`, `features.batch_size 64`, `num_workers 2`); все скрипты принимают `--config`.

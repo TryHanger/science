@@ -15,7 +15,15 @@
 - [x] push в GitHub (`0ac5ebb`) → `kaggle kernels push` → **kernel v4 RUNNING** (старт 2026-09-26 07:40 UTC)
 - [x] Output v4 → `outputs/kaggle_v4/` → разбор (IMPLEMENTATION.md «Результаты Kaggle v4»)
 
-### Далее: ADR-011 — финальный экспериментальный протокол (dev/test split, выборка, seeds, единое расписание) → финальный прогон (подтверждение пользователя) → `kaggle kernels push` v4 → разбор результатов
+### T-008 — Финальный протокол (ADR-011) → финальный Kaggle-прогон
+- [x] (REVIEW ✓) ТЗ-M1 — `src/extract_features.py`: индекс изображений одним проходом, пропуск/лог отсутствующих, отчёт о покрытии (препроцессинг без изменений)
+- [x] (REVIEW ✓) ТЗ-M2 — `src/splits.py` (новый) + `src/data.py`: protocol-разбиение train/dev/test, словарь по train-части, preload признаков, контроль отсутствующих признаков, `get_test_loader`; тесты
+- [x] (REVIEW ✓) ТЗ-M3 — `src/config.py` + `src/train.py`: `--seed`, `paths.run_dir = <output_dir>/seed_<n>`
+- [x] (REVIEW ✓) ТЗ-M4 — `src/metrics.py` (официальная + упрощённая VQA accuracy) + `src/evaluate.py` (test, обе метрики, колонка Split) + `scripts/aggregate_seeds.py`; тесты
+- [x] (REVIEW ✓) ТЗ-M5 — `configs/kaggle_final.yaml`, `configs/local_protocol.yaml`, `configs/local_gpu.yaml` (→ протокол), `notebooks/kaggle_final.ipynb`, `kernel-metadata.json` (новый kernel `tryhanger1/vqa-science-final`), README §4.8/§5.5
+- [x] RETEST — полный цикл протокола на локальном сэмпле: 2 seed × 3 модели → evaluate (test) → aggregate_seeds; манифест 24/6 изображений; pytest 15/15; `git diff --check` чист
+- [x] COMMIT (локально)
+- [ ] push (подтверждение пользователя) → `kaggle kernels push` финального kernel → выгрузка → агрегирование → Results (подтверждение пользователя) → `kaggle kernels push` v4 → разбор результатов
 
 ## Backlog
 - T-006 — Живая загрузка в PostgreSQL: задать `PGUSER`/`PGPASSWORD`, выполнить `scripts/load_predictions.py` + `sql/analysis.sql` для `kaggle_v3` (и v4 после прогона).
