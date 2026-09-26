@@ -297,7 +297,7 @@ kaggle kernels output tryhanger1/vqa-science -p outputs/kaggle --force
 2. **Синхронизация кода:** клонирует актуальный репозиторий с GitHub и устанавливает зависимости из `requirements.txt`.
 3. **Восстановление кэша признаков:** находит директорию с `train_img_features.h5` под `/kaggle/input` и копирует **только** `train_img_features.h5` и `val_img_features.h5` в `/kaggle/working/outputs_final/`. Словарь `vocab.json` и чекпоинты намеренно не копируются, так как словарь обучается строго по train-части протокола (ADR-011).
 4. **Извлечение отсутствующих признаков:** скрипт `src/extract_features.py --config configs/kaggle_final.yaml` автоматически проверяет наличие всех необходимых признаков ResNet-50 и доизвлекает недостающие.
-5. **Контроль покрытия признаками:** подсчитывает число пропущенных изображений в `missing_images_train2014.txt` и `missing_images_val2014.txt`. Если доля отсутствующих изображений для любого сплита превышает 1% (`max_missing_feature_frac: 0.01`), выполнение немедленно прерывается с `RuntimeError`.
+5. **Контроль покрытия признаками:** скрипт `scripts/coverage_report.py` формирует `coverage_report.json` и `coverage_report.csv`. Если доля отсутствующих изображений для любого сплита превышает 1% (`max_missing_feature_frac: 0.01`), выполнение немедленно прерывается с `RuntimeError`.
 6. **Обучение и оценка 3 архитектур на 3 сидах (`SEEDS = [42, 43, 44]`):**
    Последовательно запускает для каждого сида:
    - `python src/train.py --config configs/kaggle_final.yaml --seed {seed} --model-type vqa`
@@ -314,6 +314,7 @@ kaggle kernels output tryhanger1/vqa-science -p outputs/kaggle --force
   kaggle kernels output tryhanger1/vqa-science-final -p outputs/kaggle_final --force
   ```
 - **Структура сохранённых результатов:**
+  - `outputs_final/coverage_report.json`, `coverage_report.csv` — отчёт о покрытии признаками изображений (ADR-011 п.6, прогон останавливается при пропуске > 1%).
   - `outputs_final/seed_<seed>/` — чекпоинты `best_model*.pth`, истории обучения, предсказания и таблицы `metrics_table.csv` для каждого конкретного сида.
   - `outputs_final/results_table.csv` — сводная таблица метрик (Accuracy official/simplified mean ± std).
   - `outputs_final/results_per_seed.csv` — развёрнутая таблица результатов по каждому сиду отдельно.

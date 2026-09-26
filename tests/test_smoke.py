@@ -425,5 +425,54 @@ def test_aggregate_seeds(tmp_path):
     assert overall_row["Accuracy (%) mean"].values[0] == pytest.approx(41.0)
 
 
+def test_compute_coverage(tmp_path):
+    """
+    Test compute_coverage from scripts/coverage_report.py (ADR-011 item 6):
+    Create questions JSON with 5 questions across 3 image_id (1, 2, 3)
+    and H5 with keys "1", "2". Verify unique_images=3, missing_images=1,
+    and affected_questions equal to the number of questions with image_id 3.
+    """
+    import json
+    import h5py
+    from scripts.coverage_report import compute_coverage
+
+    questions_file = tmp_path / "test_questions.json"
+    h5_file = tmp_path / "test_features.h5"
+
+    questions_payload = {
+        "questions": [
+            {"question_id": 1, "image_id": 1, "question": "q1"},
+            {"question_id": 2, "image_id": 1, "question": "q2"},
+            {"question_id": 3, "image_id": 2, "question": "q3"},
+            {"question_id": 4, "image_id": 3, "question": "q4"},
+            {"question_id": 5, "image_id": 3, "question": "q5"},
+        ]
+    }
+    with open(questions_file, "w", encoding="utf-8") as f:
+        json.dump(questions_payload, f)
+
+    with h5py.File(h5_file, "w") as h5:
+        h5.create_dataset("1", data=np.zeros(2048, dtype=np.float32))
+        h5.create_dataset("2", data=np.zeros(2048, dtype=np.float32))
+
+    res = compute_coverage(questions_file, h5_file)
+
+    assert res["unique_images"] == 3
+    assert res["missing_images"] == 1
+    assert res["total_questions"] == 5
+    assert res["affected_questions"] == 2
+    assert res["missing_pct"] == pytest.approx(100.0 / 3.0, abs=1e-3)
+    assert res["affected_questions_pct"] == pytest.approx(40.0, abs=1e-3)
+
+    # Missing H5 file scenario
+    res_no_h5 = compute_coverage(questions_file, tmp_path / "missing.h5")
+    assert res_no_h5["unique_images"] == 3
+    assert res_no_h5["missing_images"] == 3
+    assert res_no_h5["total_questions"] == 5
+    assert res_no_h5["affected_questions"] == 5
+    assert res_no_h5["missing_pct"] == 100.0
+    assert res_no_h5["affected_questions_pct"] == 100.0
+
+
 if __name__ == "__main__":
     pytest.main(["-v", __file__])
