@@ -1,7 +1,7 @@
 {
-  "id": "tryhanger1/vqa-science",
-  "title": "vqa-science",
-  "code_file": "notebooks/kaggle_run.ipynb",
+  "id": "tryhanger1/vqa-science-final",
+  "title": "vqa-science-final",
+  "code_file": "notebooks/kaggle_final.ipynb",
   "language": "python",
   "kernel_type": "notebook",
   "is_private": "true",

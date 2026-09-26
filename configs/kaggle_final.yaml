@@ -1,13 +1,13 @@
-env: local_gpu
+env: kaggle_final
 device: auto
 seed: 42
 data:
-  train_questions: ./data/full/v2_OpenEnded_mscoco_train2014_questions.json
-  train_annotations: ./data/full/v2_mscoco_train2014_annotations.json
-  val_questions: ./data/full/v2_OpenEnded_mscoco_val2014_questions.json
-  val_annotations: ./data/full/v2_mscoco_val2014_annotations.json
-  train_img_dir: ./data/coco2014/images/train2014
-  val_img_dir: ./data/coco2014/images/val2014
+  train_questions: /kaggle/input/vqa-v2/v2_OpenEnded_mscoco_train2014_questions.json
+  train_annotations: /kaggle/input/vqa-v2/v2_mscoco_train2014_annotations.json
+  val_questions: /kaggle/input/vqa-v2/v2_OpenEnded_mscoco_val2014_questions.json
+  val_annotations: /kaggle/input/vqa-v2/v2_mscoco_val2014_annotations.json
+  train_img_dir: /kaggle/input/coco2014/train2014
+  val_img_dir: /kaggle/input/coco2014/val2014
   split_mode: protocol
   num_train_questions: null
   num_val_questions: null
@@ -18,7 +18,7 @@ data:
   num_answers: 1000
   max_question_len: 14
   min_word_freq: 2
-output_dir: ./outputs/local_gpu
+output_dir: /kaggle/working/outputs_final
 model:
   img_feature_dim: 2048
   text_embed_dim: 300
@@ -31,9 +31,9 @@ training:
   learning_rate: 0.001
   num_epochs: 30
   early_stopping_patience: 5
-  num_workers: 0
+  num_workers: 2
   lr_scheduler: plateau
   scheduler_factor: 0.5
   scheduler_patience: 2
 features:
-  batch_size: 64
+  batch_size: 128

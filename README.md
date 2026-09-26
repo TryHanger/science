@@ -80,7 +80,8 @@ vqa-project/
 │   ├── schema.sql              # DDL-схема таблицы vqa_predictions (run_tag, model_name, question_id)
 │   └── analysis.sql            # Аналитические SQL-запросы для оценки результатов и калибровки
 ├── notebooks/
-│   └── kaggle_run.ipynb        # Воспроизводимый ноутбук v4 для запуска полного пайплайна на Kaggle
+│   ├── kaggle_run.ipynb        # Воспроизводимый ноутбук v4 для запуска полного пайплайна на Kaggle
+│   └── kaggle_final.ipynb      # Воспроизводимый ноутбук финального прогона по протоколу ADR-011
 ├── tests/
 │   └── test_smoke.py           # Смоук-тесты: токенизация, pack_padded_sequence, forward/backward
 ├── kernel-metadata.json        # Метаданные Kaggle Kernel (tryhanger1/vqa-science)
@@ -170,7 +171,7 @@ print(f"Ответ: {ans}, уверенность: {conf:.2%}")
 
 ### 4.8. Обучение на локальном GPU (CUDA, Windows)
 
-CUDA поддерживается и работает нативно в Windows (WSL не требуется). Отдельной кодовой базы нет: выбор устройства выполняется автоматически (`device: auto`), архитектура и гиперпараметры в `configs/local_gpu.yaml` идентичны `configs/kaggle.yaml` (ADR-010).
+CUDA поддерживается и работает нативно в Windows (WSL не требуется). Отдельной кодовой базы нет: выбор устройства выполняется автоматически (`device: auto`). Конфигурация `configs/local_gpu.yaml` зеркалирует финальный протокольный конфиг `configs/kaggle_final.yaml` (ADR-011) для полного набора данных MS COCO 2014 (`train2014` и `val2014` без искусственных ограничений по числу вопросов), но с `num_workers: 0` (для надёжной работы прелоадинга в Windows) и путями к локальным файлам.
 
 #### Проверка окружения и GPU
 Диагностический скрипт проверяет наличие CUDA, версию cuDNN, объём доступной VRAM и прогоняет тестовый бенчмарк (умножение матриц $2048 \times 2048$ и прямой проход ResNet-50):
@@ -187,21 +188,20 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
    ```bash
    kaggle datasets download biminhco/vqa-v2-question -p data/full --unzip
    ```
-2. **Изображения COCO 2014:**
-   - Необходимы **только** в случае первичного извлечения признаков с нуля (большой объём данных):
+2. **Изображения и признаки COCO 2014:**
+   Для полного набора необходимы признаки ResNet-50 всех изображений выборки. Возможны два варианта:
+   - **Извлечение из полного архива COCO:** скачать изображения и извлечь признаки локально:
      ```bash
      kaggle datasets download jeffaudi/coco-2014-dataset-for-yolov3 -p data/coco2014 --unzip
+     python src/extract_features.py --config configs/local_gpu.yaml
      ```
-   - **Рекомендуемый вариант — переиспользование признаков Kaggle:** скопировать предвычисленные признаки и словари из артефактов Kaggle в директорию `outputs/local_gpu/` (при необходимости дообучения через `--resume` можно скопировать и чекпоинты с историями метрик):
+   - **Переиспользование признаков из финального прогона Kaggle (рекомендуется):** скопировать файлы `train_img_features.h5` и `val_img_features.h5` из директории скачанных артефактов `outputs/kaggle_final/outputs_final/`:
      ```powershell
      New-Item -ItemType Directory -Force outputs/local_gpu | Out-Null
-     Copy-Item outputs/kaggle/outputs/train_img_features.h5 outputs/local_gpu/
-     Copy-Item outputs/kaggle/outputs/val_img_features.h5 outputs/local_gpu/
-     Copy-Item outputs/kaggle/outputs/vocab.json outputs/local_gpu/
-     # Опционально для --resume:
-     Copy-Item outputs/kaggle/outputs/best_*.pth outputs/local_gpu/
-     Copy-Item outputs/kaggle/outputs/metrics_history_*.json outputs/local_gpu/
+     Copy-Item outputs/kaggle_final/outputs_final/train_img_features.h5 outputs/local_gpu/
+     Copy-Item outputs/kaggle_final/outputs_final/val_img_features.h5 outputs/local_gpu/
      ```
+     *Примечание:* копировать словарь `vocab.json` и чекпоинты предыдущих версий не требуется — словарь строится заново по обучающей части протокола (ADR-011), а модели обучаются с нуля.
 
 #### Команды пайплайна
 Все скрипты запускаются с аргументом `--config configs/local_gpu.yaml`:
@@ -210,23 +210,20 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 ```bash
 python src/extract_features.py --config configs/local_gpu.yaml
 ```
-2. Обучение моделей:
+2. Обучение моделей по протоколу ADR-011:
 ```bash
-# VQA baseline (mul)
-python src/train.py --config configs/local_gpu.yaml --model-type vqa
+# VQA baseline (mul) с сидом 42
+python src/train.py --config configs/local_gpu.yaml --seed 42 --model-type vqa
 
-# Question-Only baseline
-python src/train.py --config configs/local_gpu.yaml --model-type question_only
+# VQA concat с сидом 42
+python src/train.py --config configs/local_gpu.yaml --seed 42 --model-type vqa --fusion concat
 
-# VQA concat
-python src/train.py --config configs/local_gpu.yaml --model-type vqa --fusion concat
-
-# Дообучение из чекпоинта с шедулером learning rate
-python src/train.py --config configs/local_gpu.yaml --model-type vqa --resume --epochs 40 --scheduler plateau
+# Question-Only baseline с сидом 42
+python src/train.py --config configs/local_gpu.yaml --seed 42 --model-type question_only
 ```
-3. Оценка и расчёт метрик:
+3. Оценка моделей на test split (`val2014`) по официальной метрике:
 ```bash
-python src/evaluate.py --config configs/local_gpu.yaml
+python src/evaluate.py --config configs/local_gpu.yaml --seed 42
 ```
 4. Инференс (без скачанных изображений COCO путь к картинке обязателен):
 ```bash
@@ -236,6 +233,20 @@ python src/predict.py --config configs/local_gpu.yaml --image path/to/image.jpg 
 #### Замечание по объёму видеопамяти (4 GB VRAM)
 - Для видеокарт начального уровня (например, NVIDIA RTX 3050 Laptop 4 GB) размер батча извлечения признаков ResNet-50 в `configs/local_gpu.yaml` задан отдельно: `features.batch_size: 64`. При возникновении Out-Of-Memory (OOM) уменьшите это значение (например, до 32).
 - Обучение классификатора VQA и Question-Only происходит на уже предвычисленных H5-признаках и потребляет менее 1 GB VRAM, поэтому батч обучения `training.batch_size: 256` выполняется без ограничений.
+
+### 4.9. Smoke-тест протокола ADR-011 на локальном сэмпле
+Для быстрой локальной верификации корректности работы протокольного разбиения (`split_mode: protocol`, `dev_image_fraction: 0.2`, `preload_features: true`) на демонстрационном сэмпле:
+```bash
+# 1. Извлечение признаков (при необходимости обновления кэша)
+python src/extract_features.py --config configs/local_protocol.yaml
+
+# 2. Обучение базовой модели VQA с сидом 42
+python src/train.py --config configs/local_protocol.yaml --seed 42 --model-type vqa
+
+# 3. Оценка модели на тестовом сплите протокола
+python src/evaluate.py --config configs/local_protocol.yaml --seed 42
+```
+Артефакты сохраняются в `outputs/local_protocol/seed_42/`, а манифест разбиения `split_manifest.json` и файлы признаков `*.h5` — в корне `outputs/local_protocol/`.
 
 ---
 
@@ -276,6 +287,37 @@ kaggle kernels output tryhanger1/vqa-science -p outputs/kaggle --force
 - `metrics_table.csv` — таблица финальных метрик по категориям ответов.
 - `predictions.csv`, `predictions_concat.csv` — предсказания валидационного набора.
 - `learning_curves.png` — итоговые графики кривых обучения.
+
+### 5.5. Финальный прогон по протоколу (ADR-011)
+
+Для получения чистого экспериментального сравнения и формирования итоговых таблиц научной статьи используется воспроизводимый ноутбук `notebooks/kaggle_final.ipynb` и ядро Kaggle `tryhanger1/vqa-science-final`.
+
+#### Что выполняет пайплайн `kaggle_final.ipynb`:
+1. **Проверка входных данных:** рекурсивно сканирует `/kaggle/input` и валидирует подключённые датасеты.
+2. **Синхронизация кода:** клонирует актуальный репозиторий с GitHub и устанавливает зависимости из `requirements.txt`.
+3. **Восстановление кэша признаков:** находит директорию с `train_img_features.h5` под `/kaggle/input` и копирует **только** `train_img_features.h5` и `val_img_features.h5` в `/kaggle/working/outputs_final/`. Словарь `vocab.json` и чекпоинты намеренно не копируются, так как словарь обучается строго по train-части протокола (ADR-011).
+4. **Извлечение отсутствующих признаков:** скрипт `src/extract_features.py --config configs/kaggle_final.yaml` автоматически проверяет наличие всех необходимых признаков ResNet-50 и доизвлекает недостающие.
+5. **Контроль покрытия признаками:** подсчитывает число пропущенных изображений в `missing_images_train2014.txt` и `missing_images_val2014.txt`. Если доля отсутствующих изображений для любого сплита превышает 1% (`max_missing_feature_frac: 0.01`), выполнение немедленно прерывается с `RuntimeError`.
+6. **Обучение и оценка 3 архитектур на 3 сидах (`SEEDS = [42, 43, 44]`):**
+   Последовательно запускает для каждого сида:
+   - `python src/train.py --config configs/kaggle_final.yaml --seed {seed} --model-type vqa`
+   - `python src/train.py --config configs/kaggle_final.yaml --seed {seed} --model-type vqa --fusion concat`
+   - `python src/train.py --config configs/kaggle_final.yaml --seed {seed} --model-type question_only`
+   - `python src/evaluate.py --config configs/kaggle_final.yaml --seed {seed}` (оценка на test split `val2014` по официальной метрике).
+7. **Агрегация метрик по сидам:** скрипт `scripts/aggregate_seeds.py --root /kaggle/working/outputs_final` рассчитывает среднее и стандартное отклонение ($\text{mean} \pm \text{std}$) по всем сидам и моделям.
+8. **Формирование итогового отчёта:** выводит структуру файлов в `/kaggle/working/outputs_final`, параметры разбиения из `split_manifest.json` и итоговую таблицу `results_table.csv`.
+
+#### Конфигурация запусков и скачивание артефактов:
+- **Разбиение на несколько запусков (параметр `SEEDS`):** в ячейке 6 ноутбука переменная `SEEDS` (по умолчанию `[42, 43, 44]`) позволяет гибко разбивать обучение при исчерпании лимита 12-часовой сессии GPU на Kaggle. Например, можно запустить `SEEDS = [42]` в первой сессии, а затем `SEEDS = [43, 44]` в следующей.
+- **Скачивание итоговых результатов через Kaggle CLI:**
+  ```bash
+  kaggle kernels output tryhanger1/vqa-science-final -p outputs/kaggle_final --force
+  ```
+- **Структура сохранённых результатов:**
+  - `outputs_final/seed_<seed>/` — чекпоинты `best_model*.pth`, истории обучения, предсказания и таблицы `metrics_table.csv` для каждого конкретного сида.
+  - `outputs_final/results_table.csv` — сводная таблица метрик (Accuracy official/simplified mean ± std).
+  - `outputs_final/results_per_seed.csv` — развёрнутая таблица результатов по каждому сиду отдельно.
+  - `outputs_final/split_manifest.json` — манифест детерминированного разбиения на train и dev.
 
 ---
 
