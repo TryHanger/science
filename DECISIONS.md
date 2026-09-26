@@ -29,5 +29,15 @@
 ## ADR-009 — Разделение ролей Claude Desktop / Antigravity и места хранения правил
 **Статус:** принято, 2026-09-26 (по указанию пользователя). **Контекст:** правила были размазаны: общий протокол в `CLAUDE.md` (без REVIEW/TEST/COMMIT, с нерелевантными Qiskit/PennyLane и шагом `kaggle kernels init`), операционные правила agy — в `TASKS.md` и `IMPLEMENTATION.md`, контракт исполнителя повторялся в каждом ТЗ. Итог — параллельные вызовы agy, которые не стартовали, и лишний расход контекста. **Решение:** workflow ANALYZE→PLAN→IMPLEMENT→TEST→REVIEW→FIX→RETEST→DOCUMENT→COMMIT с владельцами этапов; `CLAUDE.md` — только протокол оркестратора; `AGENTS.md` — контракт исполнителя (agy загружает его сам, в ТЗ не дублируется); `TASKS.md` — только реестр; `IMPLEMENTATION.md` — только факты; последовательные вызовы agy по умолчанию; timeout не считается ошибкой. **Альтернативы:** держать всё в `CLAUDE.md` (agy его не читает → дублирование в prompt); `GEMINI.md` вместо `AGENTS.md` (эквивалентно, но `AGENTS.md` — нейтральное имя).
 
+## ADR-010 — Локальное обучение на CUDA в Windows без отдельного кода
+**Статус:** принято, 2026-09-26. **Контекст:** пользователь хочет обучать и на Kaggle, и локально на GPU; предполагался WSL. Проверено: RTX 3050 Laptop 4 GB, драйвер 616.92, torch 2.5.1+cu124, `torch.cuda.is_available() == True`, cuDNN 9.1 — нативно в Windows. **Решение:**
+- Единая кодовая база; устройство выбирает `get_device("auto")`. WSL не используется (не нужен; остаётся запасным вариантом).
+- Новый конфиг `configs/local_gpu.yaml`: те же `data`/`model`, что в `kaggle.yaml` (80k/20k, top-1000, min_word_freq 2, размерности модели) → совместимость чекпоинтов и словаря с Kaggle; пути к полным JSON в `data/full/`, `output_dir: ./outputs/local_gpu`, `num_workers: 2`.
+- Секция `features.batch_size` (64) для `extract_features.py` — извлечение признаков ResNet-50 отделено от батча обучения (256) из-за 4 GB VRAM; при отсутствии секции — прежнее поведение (`training.batch_size`).
+- Изображения COCO локально не обязательны: признаки для той же выборки переиспользуются из артефактов Kaggle (`outputs/kaggle/outputs/*.h5`, `vocab.json`, чекпоинты).
+- `scripts/check_cuda.py` — диагностика окружения (версии, GPU, VRAM, тест на GPU).
+Запуск: `--config configs/local_gpu.yaml` (параметр уже поддерживается `parse_args_and_get_config`).
+**Альтернативы:** WSL2 + CUDA (лишний слой, дублирование окружения); отдельный train-скрипт для GPU (дублирование кода).
+
 ## ADR-008 — Абляция fusion (T-002): concat с нуля по расписанию v3
 **Статус:** принято, 2026-09-26. **Решение:** `train.py --fusion concat` переопределяет `model.fusion_method`. Имена артефактов: `mul` → `best_model.pth`, `metrics_history_vqa.json` (как раньше); `concat` → `best_model_concat.pth`, `metrics_history_vqa_concat.json`, `predictions_concat.csv`. Concat обучается с нуля 15 эпох без scheduler — ровно как mul в v3, сравнение mul@15 (из истории v3) vs concat@15. `evaluate.py` оценивает все найденные модели и строит кривые по всем историям.

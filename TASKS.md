@@ -12,12 +12,14 @@
 - [x] ТЗ-H — приватный датасет `tryhanger1/vqa-science-artifacts` из `outputs/kaggle/outputs/` (REVIEW ✓: ready, 7 файлов, размеры совпадают, в публичном поиске отсутствует)
 - [x] RETEST — pytest 6/6; resume со старого чекпоинта; evaluate по 3 моделям; веса v3 загружаются в текущие модели без расхождений ключей; `git diff --check` чист
 - [x] COMMIT — `805f272`, `5c73917`, `a5da89e` (локально, ahead 3)
-- [ ] push в GitHub (подтверждение пользователя) → `kaggle kernels push` v4 → разбор результатов
+- [x] push в GitHub (`0ac5ebb`) → `kaggle kernels push` → **kernel v4 RUNNING** (старт 2026-09-26 07:40 UTC)
+- [ ] По сигналу пользователя: `kaggle kernels output tryhanger1/vqa-science -p outputs/kaggle --force` → разбор: потолок mul после resume, concat@15 vs mul@15, разрыв с Question-Only (подтверждение пользователя) → `kaggle kernels push` v4 → разбор результатов
 
 ## Backlog
 - T-006 — Живая загрузка в PostgreSQL: задать `PGUSER`/`PGPASSWORD`, выполнить `scripts/load_predictions.py` + `sql/analysis.sql` для `kaggle_v3` (и v4 после прогона).
 
 ## Completed
+- T-007 (2026-09-26) — Локальное обучение на CUDA (Windows, без WSL): `configs/local_gpu.yaml`, `features.batch_size`, `scripts/check_cuda.py`, README §4.8; фикс `predict.py --config`. REVIEW ✓ (check_cuda OK, обучение на `cuda`, pytest 6/6).
 - T-003 (2026-09-26) — `sql/schema.sql`, `sql/analysis.sql`, `scripts/load_predictions.py`; dry-run на `kaggle_v3` ✓ (20 000 строк; is_correct-accuracy 42.12%).
 - T-001 (2026-09-26) — Полный прогон на Kaggle GPU (kernel v3). Приёмка ✓: VQA (mul) 43.37% > Question-Only 39.09%. Артефакты: `outputs/kaggle/outputs/`.
 - T-000 — Базовый каркас VQA-проекта (src, конфиги local/kaggle, smoke-тесты, ноутбук, локальный прогон).

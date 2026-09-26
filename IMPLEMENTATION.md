@@ -51,6 +51,13 @@ ResNet-50 (avgpool, 2048) → Linear(1024)+Tanh ⊙ LSTM(512, pack_padded_sequen
 ## Возможности train.py (после ТЗ-C)
 `--model-type {vqa,question_only} --fusion {mul,concat} --epochs N(общее) --patience N --scheduler {none,plateau} --resume`. Артефакты: mul → `best_model.pth`/`metrics_history_vqa.json`; concat → `best_model_concat.pth`/`metrics_history_vqa_concat.json`; q-only → `best_question_only_model.pth`/`metrics_history_question_only.json`. История пишется после каждой эпохи, включает `lr`. Resume стартует с лучшей эпохи чекпоинта (история обрезается до неё).
 
+## Локальное обучение на GPU (ADR-010)
+- GPU: NVIDIA GeForce RTX 3050 Laptop, 4 GB VRAM (≈3.2 GB свободно), драйвер 616.92; CUDA работает нативно в Windows (torch 2.5.1+cu124, torchvision 0.20.1+cu124, cuDNN 9.1). WSL (Ubuntu, docker-desktop) установлен, но не используется.
+- Конфиг `configs/local_gpu.yaml` (данные/модель = kaggle.yaml, `output_dir ./outputs/local_gpu`, `features.batch_size 64`, `num_workers 2`); все скрипты принимают `--config`.
+- `scripts/check_cuda.py` — диагностика (проверено: GPU-тест OK, пик 239 MB).
+- `extract_features.py` пропускает извлечение без каталога изображений, если все признаки уже есть в H5.
+- Для полноценного прогона не хватает полных JSON VQA v2 в `data/full/` (сейчас в `data/` только сэмпл ~0.5 MB).
+
 ## Окружение и инструменты (факты)
 - Python 3.11: `C:\Users\Nikita\AppData\Local\Programs\Python\Python311\python.exe`; torch 2.5.1+cu124 (CUDA есть), numpy 2.0.2, pandas 3.0.2, protobuf 7.36.2 (последние два конфликтуют со streamlit/tensorflow — проект не затронут).
 - Kaggle CLI 2.2.4 + kagglesdk 0.1.37, аккаунт `tryhanger1`, токен `KGAT_…` (CLI < 1.8 такой токен не принимает → 401).
