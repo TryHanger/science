@@ -1,8 +1,9 @@
 import json
 import os
+import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -17,6 +18,36 @@ from torchvision import models, transforms
 from tqdm import tqdm
 
 from src.config import parse_args_and_get_config
+
+
+def build_image_index(img_dir: Path) -> Dict[int, Path]:
+    """
+    Build an index mapping image_id (int) to file Path with a single pass over img_dir.
+    Matches *.jpg, *.jpeg, *.png and extracts image_id as the trailing group of digits
+    in the filename stem (regex r"(\\d+)$").
+    Keeps the first encounter if duplicate image_ids are found.
+    """
+    img_dir = Path(img_dir)
+    image_index: Dict[int, Path] = {}
+    valid_exts = {".jpg", ".jpeg", ".png"}
+    digit_pattern = re.compile(r"(\d+)$")
+
+    with os.scandir(img_dir) as entries:
+        for entry in entries:
+            if not entry.is_file():
+                continue
+            ext = os.path.splitext(entry.name)[1].lower()
+            if ext not in valid_exts:
+                continue
+            stem = os.path.splitext(entry.name)[0]
+            match = digit_pattern.search(stem)
+            if match:
+                img_id = int(match.group(1))
+                if img_id not in image_index:
+                    image_index[img_id] = Path(entry.path)
+
+    print(f"Indexed {len(image_index):,} images from {img_dir}")
+    return image_index
 
 
 def find_image_path(img_dir: Path, split_name: str, image_id: int) -> Path:
@@ -46,19 +77,15 @@ def find_image_path(img_dir: Path, split_name: str, image_id: int) -> Path:
 
 
 class ImageExtractDataset(Dataset):
-    def __init__(self, image_ids: List[int], img_dir: Path, split_name: str, transform=None):
-        self.image_ids = image_ids
-        self.img_dir = img_dir
-        self.split_name = split_name
+    def __init__(self, image_items: List[Tuple[int, Path]], transform=None):
+        self.image_items = image_items
         self.transform = transform
 
     def __len__(self) -> int:
-        return len(self.image_ids)
+        return len(self.image_items)
 
     def __getitem__(self, idx: int):
-        img_id = self.image_ids[idx]
-        img_path = find_image_path(self.img_dir, self.split_name, img_id)
-        # Ensure image is converted to RGB
+        img_id, img_path = self.image_items[idx]
         image = Image.open(img_path).convert("RGB")
         if self.transform is not None:
             image = self.transform(image)
@@ -120,7 +147,8 @@ def extract_features_for_split(
     unique_image_ids = sorted(list(set(q["image_id"] for q in questions)))
     print(f"[1/3] Loaded {len(questions):,} questions, unique images: {len(unique_image_ids):,}")
 
-    Path(output_h5_path).parent.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(output_h5_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
     existing_ids = set()
     if os.path.exists(output_h5_path):
         with h5py.File(output_h5_path, "r") as h5_check:
@@ -138,47 +166,70 @@ def extract_features_for_split(
             f"For Kaggle: add the MS COCO 2014 dataset via 'Add Input' and verify paths in configs/kaggle.yaml."
         )
 
-    print(f"[3/3] Starting feature extraction for: {len(pending_ids):,} images.")
+    image_index = build_image_index(Path(img_dir_path))
 
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
+    found_items: List[Tuple[int, Path]] = []
+    missing_ids: List[int] = []
+    for img_id in pending_ids:
+        if img_id in image_index:
+            found_items.append((img_id, image_index[img_id]))
+        else:
+            missing_ids.append(img_id)
+
+    missing_file = output_dir / f"missing_images_{split_name}.txt"
+    if missing_ids:
+        with open(missing_file, "w", encoding="utf-8") as f:
+            for m_id in missing_ids:
+                f.write(f"{m_id}\n")
+    else:
+        if missing_file.exists():
+            missing_file.unlink()
+
+    print(f"Coverage: {len(found_items)}/{len(pending_ids)} images found ({len(missing_ids)} missing)")
+
+    print(f"[3/3] Starting feature extraction for: {len(found_items):,} images.")
+
+    total_in_h5 = len(existing_ids)
+
+    if found_items:
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
+
+        dataset = ImageExtractDataset(
+            image_items=found_items,
+            transform=transform
         )
-    ])
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers
+        )
 
-    dataset = ImageExtractDataset(
-        image_ids=pending_ids,
-        img_dir=Path(img_dir_path),
-        split_name=split_name,
-        transform=transform
-    )
-    dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
-    )
+        extractor = ResNet50FeatureExtractor().to(device)
+        extractor.eval()  # model.eval()
 
-    extractor = ResNet50FeatureExtractor().to(device)
-    extractor.eval()  # model.eval()
+        with h5py.File(output_h5_path, "a") as h5_out:
+            with torch.no_grad():  # torch.no_grad()
+                for batch_ids, batch_images in tqdm(dataloader, desc=f"Extracting {split_name}"):
+                    batch_images = batch_images.to(device)
+                    features = extractor(batch_images)  # [B, 2048]
+                    features_cpu = features.cpu().numpy()
 
-    with h5py.File(output_h5_path, "a") as h5_out:
-        with torch.no_grad():  # torch.no_grad()
-            for batch_ids, batch_images in tqdm(dataloader, desc=f"Extracting {split_name}"):
-                batch_images = batch_images.to(device)
-                features = extractor(batch_images)  # [B, 2048]
-                features_cpu = features.cpu().numpy()
+                    for img_id_tensor, feat_vec in zip(batch_ids, features_cpu):
+                        img_id_str = str(int(img_id_tensor))
+                        if img_id_str in h5_out:
+                            del h5_out[img_id_str]
+                        h5_out.create_dataset(img_id_str, data=feat_vec, compression="gzip")
+            total_in_h5 = len(h5_out)
 
-                for img_id_tensor, feat_vec in zip(batch_ids, features_cpu):
-                    img_id_str = str(int(img_id_tensor))
-                    if img_id_str in h5_out:
-                        del h5_out[img_id_str]
-                    h5_out.create_dataset(img_id_str, data=feat_vec, compression="gzip")
-
-    print(f"[OK] Successfully finished extracting {split_name}. Total in H5: {len(existing_ids) + len(pending_ids):,}")
+    print(f"[OK] Successfully finished extracting {split_name}. Total in H5: {total_in_h5:,}, missing: {len(missing_ids):,}")
 
 
 def main():

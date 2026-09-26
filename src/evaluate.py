@@ -16,7 +16,8 @@ import torch
 import torch.nn.functional as F
 
 from src.config import parse_args_and_get_config
-from src.data import get_dataloaders, normalize_answer
+from src.data import get_dataloaders, get_test_loader, normalize_answer
+from src.metrics import official_vqa_score, simplified_vqa_score
 from src.model import build_model
 from src.train import get_artifact_paths
 
@@ -26,12 +27,14 @@ def evaluate_model_detailed(
     val_loader,
     idx2ans: List[str],
     device: torch.device
-) -> Tuple[pd.DataFrame, Dict[str, float]]:
+) -> Tuple[pd.DataFrame, Dict[str, float], Dict[str, float]]:
     model.eval()
 
     records = []
-    type_scores = defaultdict(list)
-    overall_scores = []
+    type_scores_simp = defaultdict(list)
+    overall_scores_simp = []
+    type_scores_off = defaultdict(list)
+    overall_scores_off = []
 
     with torch.no_grad():
         for batch in val_loader:
@@ -60,11 +63,11 @@ def evaluate_model_detailed(
                 pred_ans_str = normalize_answer(idx2ans[pred_idx])
                 normalized_answers = [normalize_answer(a) for a in answers]
 
-                matches = sum(1 for na in normalized_answers if na == pred_ans_str)
-                score = min(matches / 3.0, 1.0)
-                is_correct = score >= 0.5
+                score_simp = simplified_vqa_score(pred_ans_str, normalized_answers)
+                score_off = official_vqa_score(pred_ans_str, normalized_answers)
+                is_correct = score_simp >= 0.5
 
-                most_common_gt = Counter(normalized_answers).most_common(1)[0][0]
+                most_common_gt = Counter(normalized_answers).most_common(1)[0][0] if normalized_answers else ""
 
                 records.append({
                     "question_id": qid,
@@ -74,23 +77,32 @@ def evaluate_model_detailed(
                     "ground_truth": most_common_gt,
                     "all_ground_truths": ";".join(answers),
                     "confidence": round(conf, 4),
-                    "vqa_score": round(score, 4),
+                    "vqa_score": round(score_simp, 4),
+                    "vqa_score_official": round(score_off, 4),
                     "is_correct": bool(is_correct),
                     "answer_type": a_type
                 })
 
-                type_scores[a_type].append(score)
-                overall_scores.append(score)
+                type_scores_simp[a_type].append(score_simp)
+                overall_scores_simp.append(score_simp)
+                type_scores_off[a_type].append(score_off)
+                overall_scores_off.append(score_off)
 
     df_preds = pd.DataFrame(records)
 
-    metrics = {
-        "overall": (sum(overall_scores) / len(overall_scores)) * 100.0 if overall_scores else 0.0
+    metrics_simplified = {
+        "overall": (sum(overall_scores_simp) / len(overall_scores_simp)) * 100.0 if overall_scores_simp else 0.0
     }
-    for a_type, scores in type_scores.items():
-        metrics[a_type] = (sum(scores) / len(scores)) * 100.0 if scores else 0.0
+    for a_type, scores in type_scores_simp.items():
+        metrics_simplified[a_type] = (sum(scores) / len(scores)) * 100.0 if scores else 0.0
 
-    return df_preds, metrics
+    metrics_official = {
+        "overall": (sum(overall_scores_off) / len(overall_scores_off)) * 100.0 if overall_scores_off else 0.0
+    }
+    for a_type, scores in type_scores_off.items():
+        metrics_official[a_type] = (sum(scores) / len(scores)) * 100.0 if scores else 0.0
+
+    return df_preds, metrics_simplified, metrics_official
 
 
 def plot_learning_curves(histories: List[Tuple[str, str, Any]], save_path: str):
@@ -175,7 +187,8 @@ def run_evaluation(cfg):
     print("=======================================================")
 
     original_fusion = cfg.model.get("fusion_method", "mul")
-    output_dir = Path(cfg.paths.output_dir if "output_dir" in cfg.paths else cfg.output_dir)
+    run_dir = Path(cfg.paths.run_dir if "run_dir" in cfg.paths else (cfg.paths.output_dir if "output_dir" in cfg.paths else cfg.output_dir))
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     variants = [
         ("VQA Baseline (mul)", "vqa", "mul"),
@@ -199,6 +212,16 @@ def run_evaluation(cfg):
 
     _, val_loader, word2idx, _, ans2idx, idx2ans = get_dataloaders(cfg)
 
+    split_mode = cfg.data.get("split_mode") if hasattr(cfg.data, "get") else getattr(cfg.data, "split_mode", "legacy")
+    if split_mode == "protocol":
+        eval_loader = get_test_loader(cfg, word2idx, ans2idx)
+        split_label = "test"
+    else:
+        eval_loader = val_loader
+        split_label = "val"
+
+    seed_val = cfg.seed if hasattr(cfg, "seed") else cfg.get("seed", 42)
+
     table_rows = []
     db_columns = ["question_id", "image_id", "question", "predicted_answer", "confidence", "is_correct", "answer_type"]
 
@@ -215,27 +238,45 @@ def run_evaluation(cfg):
 
         model.load_state_dict(checkpoint["model_state_dict"])
 
-        df_preds, metrics = evaluate_model_detailed(model, val_loader, idx2ans, cfg.resolved_device)
+        df_preds, metrics_simplified, metrics_official = evaluate_model_detailed(
+            model, eval_loader, idx2ans, cfg.resolved_device
+        )
 
         if fusion == "mul":
             df_preds[db_columns].to_csv(cfg.paths.predictions_csv, index=False, encoding="utf-8")
             print(f"[+] Predictions saved to: {cfg.paths.predictions_csv}")
             display_examples(df_preds, num_examples=10)
         elif fusion == "concat":
-            concat_preds_path = output_dir / "predictions_concat.csv"
+            concat_preds_path = run_dir / "predictions_concat.csv"
             df_preds[db_columns].to_csv(concat_preds_path, index=False, encoding="utf-8")
             print(f"[+] Predictions saved to: {concat_preds_path}")
 
         best_epoch = checkpoint.get("epoch")
+        type_counts = df_preds["answer_type"].value_counts().to_dict() if "answer_type" in df_preds else {}
         for cat in ["overall", "yes/no", "number", "other"]:
+            n_count = len(df_preds) if cat == "overall" else type_counts.get(cat, 0)
             table_rows.append({
                 "Model": label,
+                "Split": split_label,
+                "Seed": seed_val,
                 "Answer Type": cat,
-                "Accuracy (%)": round(metrics.get(cat, 0.0), 2),
+                "N": n_count,
+                "Accuracy (%)": round(metrics_official.get(cat, 0.0), 2),
+                "Accuracy simplified (%)": round(metrics_simplified.get(cat, 0.0), 2),
                 "Best Epoch": best_epoch
             })
 
-    df_metrics = pd.DataFrame(table_rows, columns=["Model", "Answer Type", "Accuracy (%)", "Best Epoch"])
+    columns = [
+        "Model",
+        "Split",
+        "Seed",
+        "Answer Type",
+        "N",
+        "Accuracy (%)",
+        "Accuracy simplified (%)",
+        "Best Epoch"
+    ]
+    df_metrics = pd.DataFrame(table_rows, columns=columns)
     print("\n" + "=" * 60)
     print("Final Model Evaluation Results (IMRAD: Results)")
     print("=" * 60)

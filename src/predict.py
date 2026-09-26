@@ -97,6 +97,7 @@ def main():
     parser.add_argument("--question", type=str, default="is the object red?", help="Question text in English")
     parser.add_argument("--env", type=str, choices=["local", "kaggle"], default=None)
     parser.add_argument("--config", type=str, default=None, help="Path to YAML config (overrides --env)")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed override")
     args = parser.parse_args()
 
     cfg = parse_args_and_get_config()

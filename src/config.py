@@ -8,7 +8,7 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
@@ -89,7 +89,11 @@ def resolve_kaggle_paths(cfg: ConfigDict) -> ConfigDict:
     return cfg
 
 
-def load_config(env: str = None, config_path: str = None) -> ConfigDict:
+def load_config(
+    env: Optional[str] = None,
+    config_path: Optional[str] = None,
+    seed: Optional[int] = None
+) -> ConfigDict:
     if config_path is None:
         if env is None:
             env = "kaggle" if os.path.exists("/kaggle/input") else "local"
@@ -112,23 +116,34 @@ def load_config(env: str = None, config_path: str = None) -> ConfigDict:
     output_dir = Path(cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if seed is not None:
+        cfg.seed = seed
+        run_dir = output_dir / f"seed_{seed}"
+    else:
+        if "seed" not in cfg:
+            cfg.seed = 42
+        run_dir = output_dir
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+
     cfg.paths = ConfigDict({
         "output_dir": str(output_dir),
+        "run_dir": str(run_dir),
         "train_features_h5": str(output_dir / "train_img_features.h5"),
         "val_features_h5": str(output_dir / "val_img_features.h5"),
         "vocab_json": str(output_dir / "vocab.json"),
-        "best_model_pth": str(output_dir / "best_model.pth"),
-        "best_question_only_pth": str(output_dir / "best_question_only_model.pth"),
-        "predictions_csv": str(output_dir / "predictions.csv"),
-        "metrics_table_csv": str(output_dir / "metrics_table.csv"),
-        "learning_curves_png": str(output_dir / "learning_curves.png"),
-        "metrics_history_json": str(output_dir / "metrics_history.json")
+        "best_model_pth": str(run_dir / "best_model.pth"),
+        "best_question_only_pth": str(run_dir / "best_question_only_model.pth"),
+        "predictions_csv": str(run_dir / "predictions.csv"),
+        "metrics_table_csv": str(run_dir / "metrics_table.csv"),
+        "learning_curves_png": str(run_dir / "learning_curves.png"),
+        "metrics_history_json": str(run_dir / "metrics_history.json")
     })
 
     actual_device = get_device(cfg.get("device", "auto"))
     cfg.resolved_device = actual_device
 
-    set_seed(cfg.get("seed", 42))
+    set_seed(cfg.seed)
 
     return cfg
 
@@ -137,8 +152,9 @@ def parse_args_and_get_config() -> ConfigDict:
     parser = argparse.ArgumentParser(description="VQA Baseline Pipeline")
     parser.add_argument("--env", type=str, choices=["local", "kaggle"], default=None)
     parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None, help="Random seed override")
     args, _ = parser.parse_known_args()
-    return load_config(env=args.env, config_path=args.config)
+    return load_config(env=args.env, config_path=args.config, seed=args.seed)
 
 
 if __name__ == "__main__":

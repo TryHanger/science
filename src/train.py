@@ -101,19 +101,25 @@ def evaluate(
 
 
 def get_artifact_paths(cfg, model_type: str = "vqa") -> Tuple[str, str]:
-    output_dir = Path(cfg.paths.output_dir if "output_dir" in cfg.paths else cfg.output_dir)
+    if hasattr(cfg, "paths") and "run_dir" in cfg.paths and cfg.paths.run_dir:
+        run_dir = Path(cfg.paths.run_dir)
+    elif hasattr(cfg, "paths") and "output_dir" in cfg.paths:
+        run_dir = Path(cfg.paths.output_dir)
+    else:
+        run_dir = Path(cfg.output_dir)
+
     model_type = model_type.lower()
     if model_type == "question_only":
-        ckpt_path = str(cfg.paths.best_question_only_pth)
-        history_path = str(output_dir / "metrics_history_question_only.json")
+        ckpt_path = str(cfg.paths.best_question_only_pth) if (hasattr(cfg, "paths") and "best_question_only_pth" in cfg.paths) else str(run_dir / "best_question_only_model.pth")
+        history_path = str(run_dir / "metrics_history_question_only.json")
     else:
         fusion = cfg.model.get("fusion_method", "mul").lower()
         if fusion == "mul":
-            ckpt_path = str(cfg.paths.best_model_pth)
-            history_path = str(output_dir / "metrics_history_vqa.json")
+            ckpt_path = str(cfg.paths.best_model_pth) if (hasattr(cfg, "paths") and "best_model_pth" in cfg.paths) else str(run_dir / "best_model.pth")
+            history_path = str(run_dir / "metrics_history_vqa.json")
         else:
-            ckpt_path = str(output_dir / f"best_model_{fusion}.pth")
-            history_path = str(output_dir / f"metrics_history_vqa_{fusion}.json")
+            ckpt_path = str(run_dir / f"best_model_{fusion}.pth")
+            history_path = str(run_dir / f"metrics_history_vqa_{fusion}.json")
     return ckpt_path, history_path
 
 
@@ -122,10 +128,15 @@ def run_training(cfg, model_type: str = "vqa", resume: bool = False):
     if "lr_scheduler" not in cfg.training:
         cfg.training.lr_scheduler = "none"
 
+    run_dir_str = str(cfg.paths.run_dir) if (hasattr(cfg, "paths") and "run_dir" in cfg.paths and cfg.paths.run_dir) else str(cfg.paths.output_dir if (hasattr(cfg, "paths") and "output_dir" in cfg.paths) else cfg.output_dir)
+    seed_str = str(cfg.seed) if hasattr(cfg, "seed") else str(cfg.get("seed", 42))
+
     print(f"\n=======================================================")
     print(f"Model type:            {model_type.upper()}")
     print(f"Environment:           {cfg.env}")
     print(f"Device:                {cfg.resolved_device}")
+    print(f"Seed:                  {seed_str}")
+    print(f"Run dir:               {run_dir_str}")
     print(f"Fusion method:         {cfg.model.get('fusion_method', 'mul')}")
     print(f"Epochs:                {cfg.training.num_epochs}")
     print(f"Batch size:            {cfg.training.batch_size}")
@@ -287,6 +298,7 @@ def main():
     parser = argparse.ArgumentParser(description="VQA Training Script")
     parser.add_argument("--env", type=str, choices=["local", "kaggle"], default=None)
     parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None, help="Random seed override")
     parser.add_argument("--model-type", type=str, choices=["vqa", "question_only"], default="vqa")
     parser.add_argument("--fusion", type=str, choices=["mul", "concat"], default=None)
     parser.add_argument("--epochs", type=int, default=None)
