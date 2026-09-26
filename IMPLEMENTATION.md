@@ -34,6 +34,18 @@ ResNet-50 (avgpool, 2048) → Linear(1024)+Tanh ⊙ LSTM(512, pack_padded_sequen
 - Кириллица в подписях графика — `?` (исходники испорчены с первого коммита; исправляется ADR-006).
 - yes/no 65.7% при сбалансированных предсказаниях (3777 yes / 3656 no) — не баг: Question-Only на VQA v2 в литературе ≈ 67%.
 
+## Результаты Kaggle v4 (2026-09-26, 80k/20k; артефакты `outputs/kaggle_v4/outputs/`)
+| Модель | overall | yes/no | number | other | Best epoch | Как обучалась |
+|---|---|---|---|---|---|---|
+| VQA mul | **48.13** | 71.70 | 29.38 | 35.47 | 39 / 40 | v3 (15 эп., LR 1e-3) + resume до 40, plateau (LR 1e-3→5e-4 с эп. 29→2.5e-4 с эп. 39) |
+| VQA concat | 46.78 | 68.83 | 28.06 | 35.25 | 15 / 15 | с нуля 15 эп., LR 1e-3, без scheduler |
+| Question-Only | 40.57 | 67.96 | 28.93 | 23.09 | 22 / 27 | v3 (14 эп.) + resume, early stop на 27 |
+- Разрыв mul − Question-Only: **+7.56 п.п.** overall (v3: +4.28); other +12.38, yes/no +3.74, number +0.45.
+- При равных 15 эпохах: concat 46.78 vs mul 43.37 → concat сходится заметно быстрее (+3.4 п.п.); concat на 15-й эпохе ещё растёт, его потолок не измерен.
+- mul вышел на плато: после 29-й эпохи +0.25 п.п.; val_loss минимален на 21-й эпохе (0.00392) и дальше растёт при стабильной accuracy — переобучение по уверенности, не по точности.
+- Question-Only на плато с ~20-й эпохи (≈40.5%).
+- Лог kernel через CLI 2.2.4 скачивается пустым (0 байт); ход обучения подтверждается историями (`lr` = null до resume).
+
 ## Статус Kaggle-интеграции
 - `kernel-metadata.json` в корне (коммит ffd5966): `tryhanger1/vqa-science`, private, GPU, internet; датасеты `biminhco/vqa-v2-question` (вопросы+аннотации train/val — проверено) и `jeffaudi/coco-2014-dataset-for-yolov3` (`coco2014/images/{train,val}2014`).
 - `src/config.py::resolve_kaggle_paths` динамически находит файлы в `/kaggle/input`.
