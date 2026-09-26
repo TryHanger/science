@@ -23,6 +23,7 @@
 - [x] (REVIEW ✓) ТЗ-M5 — `configs/kaggle_final.yaml`, `configs/local_protocol.yaml`, `configs/local_gpu.yaml` (→ протокол), `notebooks/kaggle_final.ipynb`, `kernel-metadata.json` (новый kernel `tryhanger1/vqa-science-final`), README §4.8/§5.5
 - [x] RETEST — полный цикл протокола на локальном сэмпле: 2 seed × 3 модели → evaluate (test) → aggregate_seeds; манифест 24/6 изображений; pytest 15/15; `git diff --check` чист
 - [x] COMMIT (локально)
+- [x] (REVIEW ✓: pytest 16/16, passed/negative case проверены) ТЗ-M6 — `scripts/coverage_report.py` (coverage_report.json/.csv, fail-fast > 1%) + ячейка покрытия в `notebooks/kaggle_final.ipynb` + README; тест
 - [ ] push (подтверждение пользователя) → `kaggle kernels push` финального kernel → выгрузка → агрегирование → Results (подтверждение пользователя) → `kaggle kernels push` v4 → разбор результатов
 
 ## Backlog
