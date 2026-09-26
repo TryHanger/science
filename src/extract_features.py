@@ -110,12 +110,6 @@ def extract_features_for_split(
             f"For local test: run `python scripts/download_sample.py`."
         )
 
-    if not os.path.exists(img_dir_path):
-        raise FileNotFoundError(
-            f"\n[Data Error] Images directory not found: {img_dir_path}.\n"
-            f"For Kaggle: add the MS COCO 2014 dataset via 'Add Input' and verify paths in configs/kaggle.yaml."
-        )
-
     with open(questions_json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -137,6 +131,12 @@ def extract_features_for_split(
     if not pending_ids:
         print(f"[OK] All {len(unique_image_ids):,} images are already extracted. Skipping.")
         return
+
+    if not os.path.exists(img_dir_path):
+        raise FileNotFoundError(
+            f"\n[Data Error] Images directory not found: {img_dir_path}.\n"
+            f"For Kaggle: add the MS COCO 2014 dataset via 'Add Input' and verify paths in configs/kaggle.yaml."
+        )
 
     print(f"[3/3] Starting feature extraction for: {len(pending_ids):,} images.")
 
@@ -184,6 +184,11 @@ def extract_features_for_split(
 def main():
     cfg = parse_args_and_get_config()
 
+    if "features" in cfg and "batch_size" in cfg.features:
+        batch_size = cfg.features.batch_size
+    else:
+        batch_size = cfg.training.batch_size
+
     extract_features_for_split(
         questions_json_path=cfg.data.train_questions,
         img_dir_path=cfg.data.train_img_dir,
@@ -191,7 +196,7 @@ def main():
         split_name="train2014",
         max_questions=cfg.data.num_train_questions,
         device=cfg.resolved_device,
-        batch_size=cfg.training.batch_size,
+        batch_size=batch_size,
         num_workers=cfg.training.num_workers
     )
 
@@ -202,7 +207,7 @@ def main():
         split_name="val2014",
         max_questions=cfg.data.num_val_questions,
         device=cfg.resolved_device,
-        batch_size=cfg.training.batch_size,
+        batch_size=batch_size,
         num_workers=cfg.training.num_workers
     )
 

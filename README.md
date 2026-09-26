@@ -168,6 +168,75 @@ ans, conf = predict("data/val2014/COCO_val2014_000000000001.jpg", "is the object
 print(f"Ответ: {ans}, уверенность: {conf:.2%}")
 ```
 
+### 4.8. Обучение на локальном GPU (CUDA, Windows)
+
+CUDA поддерживается и работает нативно в Windows (WSL не требуется). Отдельной кодовой базы нет: выбор устройства выполняется автоматически (`device: auto`), архитектура и гиперпараметры в `configs/local_gpu.yaml` идентичны `configs/kaggle.yaml` (ADR-010).
+
+#### Проверка окружения и GPU
+Диагностический скрипт проверяет наличие CUDA, версию cuDNN, объём доступной VRAM и прогоняет тестовый бенчмарк (умножение матриц $2048 \times 2048$ и прямой проход ResNet-50):
+```bash
+python scripts/check_cuda.py
+```
+Если установлена CPU-версия PyTorch, переустановите её с поддержкой CUDA:
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+#### Подготовка данных
+1. **Вопросы и аннотации (полный VQA v2):**
+   ```bash
+   kaggle datasets download biminhco/vqa-v2-question -p data/full --unzip
+   ```
+2. **Изображения COCO 2014:**
+   - Необходимы **только** в случае первичного извлечения признаков с нуля (большой объём данных):
+     ```bash
+     kaggle datasets download jeffaudi/coco-2014-dataset-for-yolov3 -p data/coco2014 --unzip
+     ```
+   - **Рекомендуемый вариант — переиспользование признаков Kaggle:** скопировать предвычисленные признаки и словари из артефактов Kaggle в директорию `outputs/local_gpu/` (при необходимости дообучения через `--resume` можно скопировать и чекпоинты с историями метрик):
+     ```powershell
+     New-Item -ItemType Directory -Force outputs/local_gpu | Out-Null
+     Copy-Item outputs/kaggle/outputs/train_img_features.h5 outputs/local_gpu/
+     Copy-Item outputs/kaggle/outputs/val_img_features.h5 outputs/local_gpu/
+     Copy-Item outputs/kaggle/outputs/vocab.json outputs/local_gpu/
+     # Опционально для --resume:
+     Copy-Item outputs/kaggle/outputs/best_*.pth outputs/local_gpu/
+     Copy-Item outputs/kaggle/outputs/metrics_history_*.json outputs/local_gpu/
+     ```
+
+#### Команды пайплайна
+Все скрипты запускаются с аргументом `--config configs/local_gpu.yaml`:
+
+1. Извлечение признаков (при наличии распакованных изображений COCO или для проверки уже существующих H5):
+```bash
+python src/extract_features.py --config configs/local_gpu.yaml
+```
+2. Обучение моделей:
+```bash
+# VQA baseline (mul)
+python src/train.py --config configs/local_gpu.yaml --model-type vqa
+
+# Question-Only baseline
+python src/train.py --config configs/local_gpu.yaml --model-type question_only
+
+# VQA concat
+python src/train.py --config configs/local_gpu.yaml --model-type vqa --fusion concat
+
+# Дообучение из чекпоинта с шедулером learning rate
+python src/train.py --config configs/local_gpu.yaml --model-type vqa --resume --epochs 40 --scheduler plateau
+```
+3. Оценка и расчёт метрик:
+```bash
+python src/evaluate.py --config configs/local_gpu.yaml
+```
+4. Инференс (без скачанных изображений COCO путь к картинке обязателен):
+```bash
+python src/predict.py --config configs/local_gpu.yaml --image path/to/image.jpg --question "what color is the object?"
+```
+
+#### Замечание по объёму видеопамяти (4 GB VRAM)
+- Для видеокарт начального уровня (например, NVIDIA RTX 3050 Laptop 4 GB) размер батча извлечения признаков ResNet-50 в `configs/local_gpu.yaml` задан отдельно: `features.batch_size: 64`. При возникновении Out-Of-Memory (OOM) уменьшите это значение (например, до 32).
+- Обучение классификатора VQA и Question-Only происходит на уже предвычисленных H5-признаках и потребляет менее 1 GB VRAM, поэтому батч обучения `training.batch_size: 256` выполняется без ограничений.
+
 ---
 
 ## 5. Запуск на Kaggle GPU
