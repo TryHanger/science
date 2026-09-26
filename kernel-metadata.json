@@ -10,7 +10,8 @@
   "enable_internet": "true",
   "dataset_sources": [
     "biminhco/vqa-v2-question",
-    "jeffaudi/coco-2014-dataset-for-yolov3"
+    "jeffaudi/coco-2014-dataset-for-yolov3",
+    "tryhanger1/vqa-science-artifacts"
   ],
   "competition_sources": [],
   "kernel_sources": [],

@@ -28,13 +28,13 @@ class VQAPredictor:
         vocab_path = vocab_path or cfg.paths.vocab_json
 
         if not os.path.exists(vocab_path):
-            raise FileNotFoundError(f"???? ???????? ?? ??????: {vocab_path}. ????????? ??????? ???????? ??? data.py.")
+            raise FileNotFoundError(f"Vocabulary file not found: {vocab_path}. Please run training or data.py first.")
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"???? ?????? ?? ??????: {model_path}. ????????? ??????? ????????.")
+            raise FileNotFoundError(f"Model checkpoint not found: {model_path}. Please train the model first.")
 
         self.word2idx, self.idx2word, self.ans2idx, self.idx2ans = load_vocabularies(vocab_path)
 
-        print(f"[????????] ???????? ResNet-50...")
+        print("[Loading] Loading ResNet-50...")
         self.resnet = ResNet50FeatureExtractor().to(self.device)
         self.resnet.eval()
 
@@ -47,7 +47,7 @@ class VQAPredictor:
             )
         ])
 
-        print(f"[????????] ???????? ????????? VQA ?????? ?? {model_path}...")
+        print(f"[Loading] Loading VQA model checkpoint from {model_path}...")
         self.vqa_model = build_model(
             cfg=cfg,
             vocab_size=len(self.word2idx),
@@ -61,7 +61,7 @@ class VQAPredictor:
 
     def predict(self, image_path: str, question: str) -> Tuple[str, float]:
         if not os.path.exists(image_path):
-            raise FileNotFoundError(f"??????????? ?? ???????: {image_path}")
+            raise FileNotFoundError(f"Image not found: {image_path}")
 
         raw_image = Image.open(image_path).convert("RGB")
         img_tensor = self.img_transform(raw_image).unsqueeze(0).to(self.device)
@@ -92,9 +92,9 @@ def predict(image_path: str, question: str, env: str = "local") -> Tuple[str, fl
 
 
 def main():
-    parser = argparse.ArgumentParser(description="???????? VQA: ????? ?? ?????? ?? ???????????")
-    parser.add_argument("--image", type=str, default=None, help="???? ? ??????????? (jpg/png)")
-    parser.add_argument("--question", type=str, default="is the object red?", help="????? ??????? ?? ?????????? ?????")
+    parser = argparse.ArgumentParser(description="VQA Inference: Answer question about an image")
+    parser.add_argument("--image", type=str, default=None, help="Path to image (jpg/png)")
+    parser.add_argument("--question", type=str, default="is the object red?", help="Question text in English")
     parser.add_argument("--env", type=str, choices=["local", "kaggle"], default=None)
     args = parser.parse_args()
 
@@ -105,21 +105,21 @@ def main():
         val_imgs = list(Path(cfg.data.val_img_dir).glob("*.jpg"))
         if val_imgs:
             image_path = str(val_imgs[0])
-            print(f"[i] ???????? --image ?? ?????. ?????????? ???????? ????????: {image_path}")
+            print(f"[Info] Argument --image not specified. Using sample image: {image_path}")
         else:
-            print("[!] ? ???????? ??? ????????? ???????? ??? ?????.")
+            print("[Warning] No images found in validation directory.")
             return
 
     predictor = VQAPredictor(cfg)
     answer, confidence = predictor.predict(image_path, args.question)
 
     print("\n" + "=" * 60)
-    print("????????? ????????? (VQA Predict)")
+    print("Prediction Results (VQA Predict)")
     print("=" * 60)
-    print(f"???????????:  {image_path}")
-    print(f"??????:       {args.question}")
-    print(f"?????:        {answer}")
-    print(f"???????????:  {confidence:.2%}")
+    print(f"Image:       {image_path}")
+    print(f"Question:    {args.question}")
+    print(f"Answer:      {answer}")
+    print(f"Confidence:  {confidence:.2%}")
     print("=" * 60)
 
 

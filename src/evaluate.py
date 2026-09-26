@@ -4,7 +4,7 @@ import os
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -16,8 +16,9 @@ import torch
 import torch.nn.functional as F
 
 from src.config import parse_args_and_get_config
-from src.data import get_dataloaders, load_vocabularies, normalize_answer
+from src.data import get_dataloaders, normalize_answer
 from src.model import build_model
+from src.train import get_artifact_paths
 
 
 def evaluate_model_detailed(
@@ -55,7 +56,7 @@ def evaluate_model_detailed(
             for qid, img_id, q_text, a_type, answers, pred_idx, conf in zip(
                 batch_qids, batch_img_ids, batch_qtexts, batch_atypes, batch_answers, pred_indices, max_probs
             ):
-                # ??????????? ???????????? ??????
+                # Calculate normalized answer and accuracy
                 pred_ans_str = normalize_answer(idx2ans[pred_idx])
                 normalized_answers = [normalize_answer(a) for a in answers]
 
@@ -92,37 +93,47 @@ def evaluate_model_detailed(
     return df_preds, metrics
 
 
-def plot_learning_curves(history_vqa_path: str, history_qonly_path: str, save_path: str):
+def plot_learning_curves(histories: List[Tuple[str, str, Any]], save_path: str):
+    valid_histories = []
+    for item in histories:
+        label, path, style = item
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            valid_histories.append((label, data, style))
+
+    if not valid_histories:
+        print("[!] No training history files found to plot learning curves.")
+        return
+
     plt.figure(figsize=(12, 5))
 
-    # 1. Loss
+    # 1. Loss subplot: train (solid) and val (dashed) for each variant
     plt.subplot(1, 2, 1)
-    if os.path.exists(history_vqa_path):
-        with open(history_vqa_path, "r", encoding="utf-8") as f:
-            h_vqa = json.load(f)
-        plt.plot(h_vqa["epochs"], h_vqa["train_loss"], "b-o", label="VQA Train")
-        plt.plot(h_vqa["epochs"], h_vqa["val_loss"], "b--s", label="VQA Val")
+    for label, h, style in valid_histories:
+        color = style.get("color", style) if isinstance(style, dict) else style
+        epochs = h.get("epochs", list(range(1, len(h.get("val_loss", [])) + 1)))
+        if "train_loss" in h and len(h["train_loss"]) > 0:
+            plt.plot(epochs, h["train_loss"], linestyle="-", marker="o", color=color, label=f"{label} Train")
+        if "val_loss" in h and len(h["val_loss"]) > 0:
+            plt.plot(epochs, h["val_loss"], linestyle="--", marker="s", color=color, label=f"{label} Val")
 
-    if os.path.exists(history_qonly_path):
-        with open(history_qonly_path, "r", encoding="utf-8") as f:
-            h_q = json.load(f)
-        plt.plot(h_q["epochs"], h_q["val_loss"], "r--^", label="Question-Only Val")
-
-    plt.title("??????? ?????? (Loss) ?? ??????")
-    plt.xlabel("?????")
+    plt.title("Training & Validation Loss")
+    plt.xlabel("Epoch")
     plt.ylabel("BCEWithLogitsLoss")
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.legend()
 
-    # 2. VQA Accuracy
+    # 2. Accuracy subplot: val_acc for each variant
     plt.subplot(1, 2, 2)
-    if os.path.exists(history_vqa_path):
-        plt.plot(h_vqa["epochs"], h_vqa["val_acc"], "b-o", label="VQA (Multimodal)")
-    if os.path.exists(history_qonly_path):
-        plt.plot(h_q["epochs"], h_q["val_acc"], "r-^", label="Question-Only (Ablation)")
+    for label, h, style in valid_histories:
+        color = style.get("color", style) if isinstance(style, dict) else style
+        epochs = h.get("epochs", list(range(1, len(h.get("val_acc", [])) + 1)))
+        if "val_acc" in h and len(h["val_acc"]) > 0:
+            plt.plot(epochs, h["val_acc"], linestyle="-", marker="o", color=color, label=label)
 
-    plt.title("???????? (VQA Accuracy %) ?? ?????????")
-    plt.xlabel("?????")
+    plt.title("VQA Validation Accuracy (%)")
+    plt.xlabel("Epoch")
     plt.ylabel("Accuracy (%)")
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.legend()
@@ -131,90 +142,121 @@ def plot_learning_curves(history_vqa_path: str, history_qonly_path: str, save_pa
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(save_path, dpi=300)
     plt.close()
-    print(f"[?] ??????? ???????? ????????? ?: {save_path}")
+    print(f"[+] Learning curves saved to: {save_path}")
 
 
 def display_examples(df: pd.DataFrame, num_examples: int = 10):
     print("\n" + "=" * 80)
-    print(f" ???-{num_examples} ???????? ???????? ???????????? (VQA Accuracy >= 0.5)")
+    print(f" First {num_examples} Correct Predictions (VQA Accuracy >= 0.5)")
     print("=" * 80)
     correct_samples = df[df["is_correct"] == True].head(num_examples)
     for idx, (_, row) in enumerate(correct_samples.iterrows(), 1):
-        print(f"[{idx:02d}] Image ID: {row['image_id']} | ???: {row['answer_type']}")
-        print(f"     ??????:       {row['question']}")
-        print(f"     ????????????: {row['predicted_answer']} (???????????: {row['confidence']:.2%})")
-        print(f"     ????????:     {row['ground_truth']} (??? ??????: {row['all_ground_truths']})")
+        print(f"[{idx:02d}] Image ID: {row['image_id']} | Type: {row['answer_type']}")
+        print(f"     Question:     {row['question']}")
+        print(f"     Prediction:   {row['predicted_answer']} (Confidence: {row['confidence']:.2%})")
+        print(f"     Ground Truth: {row['ground_truth']} (All Answers: {row['all_ground_truths']})")
         print(f"     VQA Score:    {row['vqa_score']:.2f}\n")
 
     print("=" * 80)
-    print(f" ???-{num_examples} ???????? ????????? ???????????? (VQA Accuracy < 0.5)")
+    print(f" First {num_examples} Incorrect Predictions (VQA Accuracy < 0.5)")
     print("=" * 80)
     error_samples = df[df["is_correct"] == False].head(num_examples)
     for idx, (_, row) in enumerate(error_samples.iterrows(), 1):
-        print(f"[{idx:02d}] Image ID: {row['image_id']} | ???: {row['answer_type']}")
-        print(f"     ??????:       {row['question']}")
-        print(f"     ????????????: {row['predicted_answer']} (???????????: {row['confidence']:.2%})")
-        print(f"     ????????:     {row['ground_truth']} (??? ??????: {row['all_ground_truths']})")
+        print(f"[{idx:02d}] Image ID: {row['image_id']} | Type: {row['answer_type']}")
+        print(f"     Question:     {row['question']}")
+        print(f"     Prediction:   {row['predicted_answer']} (Confidence: {row['confidence']:.2%})")
+        print(f"     Ground Truth: {row['ground_truth']} (All Answers: {row['all_ground_truths']})")
         print(f"     VQA Score:    {row['vqa_score']:.2f}\n")
 
 
 def run_evaluation(cfg):
     print("\n=======================================================")
-    print("?????? ?????? ?????? ???????? (Evaluation & Results)")
+    print("Running Model Evaluation (Evaluation & Results)")
     print("=======================================================")
+
+    original_fusion = cfg.model.get("fusion_method", "mul")
+    output_dir = Path(cfg.paths.output_dir if "output_dir" in cfg.paths else cfg.output_dir)
+
+    variants = [
+        ("VQA Baseline (mul)", "vqa", "mul"),
+        ("VQA Baseline (concat)", "vqa", "concat"),
+        ("Question-Only (Ablation)", "question_only", None)
+    ]
+
+    # Check which checkpoints exist
+    available_variants = []
+    for label, model_type, fusion in variants:
+        if fusion is not None:
+            cfg.model.fusion_method = fusion
+        ckpt_path, _ = get_artifact_paths(cfg, model_type)
+        if os.path.exists(ckpt_path):
+            available_variants.append((label, model_type, fusion, ckpt_path))
+    cfg.model.fusion_method = original_fusion
+
+    if not available_variants:
+        print("[-] No model checkpoints found for evaluation. Exiting.")
+        return
 
     _, val_loader, word2idx, _, ans2idx, idx2ans = get_dataloaders(cfg)
 
     table_rows = []
+    db_columns = ["question_id", "image_id", "question", "predicted_answer", "confidence", "is_correct", "answer_type"]
 
-    best_vqa_pth = cfg.paths.best_model_pth
-    if os.path.exists(best_vqa_pth):
-        print(f"\n[1/3] ???????? ?????? ?????? VQA: {best_vqa_pth}")
-        checkpoint = torch.load(best_vqa_pth, map_location=cfg.resolved_device, weights_only=False)
-        model_vqa = build_model(cfg, len(word2idx), len(ans2idx), model_type="vqa").to(cfg.resolved_device)
-        model_vqa.load_state_dict(checkpoint["model_state_dict"])
+    for idx, (label, model_type, fusion, ckpt_path) in enumerate(available_variants, 1):
+        print(f"\n[{idx}/{len(available_variants)}] Evaluating {label}: {ckpt_path}")
+        checkpoint = torch.load(ckpt_path, map_location=cfg.resolved_device, weights_only=False)
 
-        df_preds, metrics_vqa = evaluate_model_detailed(model_vqa, val_loader, idx2ans, cfg.resolved_device)
+        if fusion is not None:
+            cfg.model.fusion_method = fusion
+        try:
+            model = build_model(cfg, len(word2idx), len(ans2idx), model_type=model_type).to(cfg.resolved_device)
+        finally:
+            cfg.model.fusion_method = original_fusion
 
-        db_columns = ["question_id", "image_id", "question", "predicted_answer", "confidence", "is_correct", "answer_type"]
-        df_preds[db_columns].to_csv(cfg.paths.predictions_csv, index=False, encoding="utf-8")
-        print(f"[?] ???????????? ??? PostgreSQL ????????? ?: {cfg.paths.predictions_csv}")
+        model.load_state_dict(checkpoint["model_state_dict"])
 
-        display_examples(df_preds, num_examples=10)
+        df_preds, metrics = evaluate_model_detailed(model, val_loader, idx2ans, cfg.resolved_device)
 
-        for cat, score in metrics_vqa.items():
+        if fusion == "mul":
+            df_preds[db_columns].to_csv(cfg.paths.predictions_csv, index=False, encoding="utf-8")
+            print(f"[+] Predictions saved to: {cfg.paths.predictions_csv}")
+            display_examples(df_preds, num_examples=10)
+        elif fusion == "concat":
+            concat_preds_path = output_dir / "predictions_concat.csv"
+            df_preds[db_columns].to_csv(concat_preds_path, index=False, encoding="utf-8")
+            print(f"[+] Predictions saved to: {concat_preds_path}")
+
+        best_epoch = checkpoint.get("epoch")
+        for cat in ["overall", "yes/no", "number", "other"]:
             table_rows.append({
-                "Model": f"VQA Baseline ({cfg.model.get('fusion_method', 'mul')})",
+                "Model": label,
                 "Answer Type": cat,
-                "Accuracy (%)": round(score, 2)
+                "Accuracy (%)": round(metrics.get(cat, 0.0), 2),
+                "Best Epoch": best_epoch
             })
 
-    best_q_pth = cfg.paths.best_question_only_pth
-    if os.path.exists(best_q_pth):
-        print(f"\n[2/3] ???????? ??????????? ?????? (Question-Only): {best_q_pth}")
-        checkpoint_q = torch.load(best_q_pth, map_location=cfg.resolved_device, weights_only=False)
-        model_q = build_model(cfg, len(word2idx), len(ans2idx), model_type="question_only").to(cfg.resolved_device)
-        model_q.load_state_dict(checkpoint_q["model_state_dict"])
-
-        _, metrics_q = evaluate_model_detailed(model_q, val_loader, idx2ans, cfg.resolved_device)
-        for cat, score in metrics_q.items():
-            table_rows.append({
-                "Model": "Question-Only (Ablation)",
-                "Answer Type": cat,
-                "Accuracy (%)": round(score, 2)
-            })
-
-    df_metrics = pd.DataFrame(table_rows)
+    df_metrics = pd.DataFrame(table_rows, columns=["Model", "Answer Type", "Accuracy (%)", "Best Epoch"])
     print("\n" + "=" * 60)
-    print("???????? ??????? ??????? ?????? (IMRAD: Results)")
+    print("Final Model Evaluation Results (IMRAD: Results)")
     print("=" * 60)
     print(df_metrics.to_string(index=False))
     df_metrics.to_csv(cfg.paths.metrics_table_csv, index=False, encoding="utf-8")
-    print(f"\n[?] ??????? ?????? ????????? ?: {cfg.paths.metrics_table_csv}")
+    print(f"\n[+] Metrics table saved to: {cfg.paths.metrics_table_csv}")
 
-    h_vqa_path = cfg.paths.metrics_history_json.replace(".json", "_vqa.json")
-    h_q_path = cfg.paths.metrics_history_json.replace(".json", "_question_only.json")
-    plot_learning_curves(h_vqa_path, h_q_path, cfg.paths.learning_curves_png)
+    # Plot learning curves for all variants
+    cfg.model.fusion_method = "mul"
+    _, h_mul_path = get_artifact_paths(cfg, "vqa")
+    cfg.model.fusion_method = "concat"
+    _, h_concat_path = get_artifact_paths(cfg, "vqa")
+    _, h_q_path = get_artifact_paths(cfg, "question_only")
+    cfg.model.fusion_method = original_fusion
+
+    histories = [
+        ("VQA Baseline (mul)", h_mul_path, "blue"),
+        ("VQA Baseline (concat)", h_concat_path, "green"),
+        ("Question-Only (Ablation)", h_q_path, "red"),
+    ]
+    plot_learning_curves(histories, cfg.paths.learning_curves_png)
 
 
 def main():

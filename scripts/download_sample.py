@@ -11,7 +11,7 @@ def create_sample_dataset(data_dir: str = "./data", num_train: int = 300, num_va
     train_img_dir.mkdir(parents=True, exist_ok=True)
     val_img_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[1/4] ????????? ??????????? ? {train_img_dir} ? {val_img_dir}...")
+    print(f"[1/4] Generating images in {train_img_dir} and {val_img_dir}...")
     colors = [
         ("red", (255, 50, 50)),
         ("blue", (50, 50, 255)),
@@ -21,7 +21,7 @@ def create_sample_dataset(data_dir: str = "./data", num_train: int = 300, num_va
         ("black", (20, 20, 20)),
     ]
 
-    # ??????? 25 ?????????? ??????????? ??? train ? 10 ??? val
+    # Generate synthetic images for train and val splits
     def generate_images(img_dir: Path, prefix: str, count: int):
         img_info = {}
         for idx in range(1, count + 1):
@@ -29,7 +29,7 @@ def create_sample_dataset(data_dir: str = "./data", num_train: int = 300, num_va
             filename = f"COCO_{prefix}_{img_id:012d}.jpg"
             img_file = img_dir / filename
             
-            # ?????? ??????????? 256x256 ? ????????? ??????????? ??????????
+            # Draw 256x256 image with geometric shapes
             img = Image.new("RGB", (256, 256), color=(240, 240, 240))
             draw = ImageDraw.Draw(img)
             
@@ -55,7 +55,7 @@ def create_sample_dataset(data_dir: str = "./data", num_train: int = 300, num_va
     train_meta = generate_images(train_img_dir, "train2014", 30)
     val_meta = generate_images(val_img_dir, "val2014", 15)
 
-    print("[2/4] ????????? ???????? ? ????????? ?? ????????? VQA v2...")
+    print("[2/4] Generating questions and annotations following VQA v2 protocol...")
     
     def generate_vqa_pair(meta_dict, total_questions, split_name):
         questions_list = []
@@ -85,15 +85,15 @@ def create_sample_dataset(data_dir: str = "./data", num_train: int = 300, num_va
                 true_ans = "yes" if random.random() > 0.3 else "no"
                 ans_type = "yes/no"
             
-            # ? VQA v2 ?????? ?????? ???????? 10 ??????? ?? ?????? ?????
-            # ??????????? ????? ???? ?????????? ?????, ?? ?????? ??????????? ?????? ??????
+            # In VQA v2 each question contains 10 answers from different annotators
+            # Most answers match the ground truth, with occasional variance
             answers_10 = []
             for a_i in range(10):
-                # 80-90% ?????? ???????
+                # 80-90% ground-truth answer
                 if random.random() < 0.85:
                     ans_val = true_ans
                 else:
-                    # ????????? ???
+                    # random noise
                     ans_val = random.choice(["yes", "no", "red", "blue", "1", "2"])
                 answers_10.append({
                     "answer": ans_val,
@@ -127,7 +127,7 @@ def create_sample_dataset(data_dir: str = "./data", num_train: int = 300, num_va
     train_q, train_a = generate_vqa_pair(train_meta, num_train, "train")
     val_q, val_a = generate_vqa_pair(val_meta, num_val, "val")
 
-    print("[3/4] ?????????? JSON ??????...")
+    print("[3/4] Saving JSON files...")
     with open(data_path / "v2_OpenEnded_mscoco_train2014_questions.json", "w", encoding="utf-8") as f:
         json.dump(train_q, f, ensure_ascii=False, indent=2)
     with open(data_path / "v2_mscoco_train2014_annotations.json", "w", encoding="utf-8") as f:
@@ -138,9 +138,9 @@ def create_sample_dataset(data_dir: str = "./data", num_train: int = 300, num_va
     with open(data_path / "v2_mscoco_val2014_annotations.json", "w", encoding="utf-8") as f:
         json.dump(val_a, f, ensure_ascii=False, indent=2)
 
-    print(f"[4/4] ??????! ???????:")
-    print(f"  - Train: {len(train_q['questions'])} ????????, {len(list(train_img_dir.glob('*.jpg')))} ????????")
-    print(f"  - Val:   {len(val_q['questions'])} ????????, {len(list(val_img_dir.glob('*.jpg')))} ????????")
+    print(f"[4/4] Done! Generated:")
+    print(f"  - Train: {len(train_q['questions'])} questions, {len(list(train_img_dir.glob('*.jpg')))} images")
+    print(f"  - Val:   {len(val_q['questions'])} questions, {len(list(val_img_dir.glob('*.jpg')))} images")
 
 if __name__ == "__main__":
     create_sample_dataset()
